@@ -33,10 +33,10 @@ class DropdownField(ttk.Frame):
         self.variable = variable
         self._choices: list[str] = []
         try:
-            self._menu_font = font.Font(family="Proxima Nova", size=11)
+            self._menu_font = font.Font(family="Proxima Nova", size=9)
         except tk.TclError:
             self._menu_font = font.nametofont("TkMenuFont")
-            self._menu_font.configure(family="Proxima Nova", size=11)
+            self._menu_font.configure(family="Proxima Nova", size=9)
 
         self.label = ttk.Label(self, text=label_text, style="Timesheet.Label")
         self.label.pack(anchor=tk.W, pady=(0, 4))
@@ -209,22 +209,22 @@ class TimeTrackerApp(tk.Tk):
 
         try:
             default_font = font.nametofont("TkDefaultFont")
-            default_font.configure(family="Proxima Nova", size=11)
+            default_font.configure(family="Proxima Nova", size=9)
         except tk.TclError:
             pass
 
         try:
             menu_font = font.nametofont("TkMenuFont")
-            menu_font.configure(family="Proxima Nova", size=11)
+            menu_font.configure(family="Proxima Nova", size=9)
         except tk.TclError:
             pass
 
         style.configure("TFrame", background="#f5f5f5")
-        style.configure("Timesheet.Label", font=("Proxima Nova", 11), foreground="#1f1f1f", background="#f5f5f5")
+        style.configure("Timesheet.Label", font=("Proxima Nova", 9), foreground="#1f1f1f", background="#f5f5f5")
         style.configure("Timesheet.Timer.TLabel", font=("Proxima Nova", 32, "bold"), foreground="#1f1f1f", background="#f5f5f5")
         style.configure(
             "Timesheet.OptionMenu.TMenubutton",
-            font=("Proxima Nova", 11),
+            font=("Proxima Nova", 9),
             padding=(14, 8),
             relief="flat",
             borderwidth=1,
@@ -240,7 +240,7 @@ class TimeTrackerApp(tk.Tk):
         )
         style.configure(
             "Timesheet.Status.TLabel",
-            font=("Proxima Nova", 11),
+            font=("Proxima Nova", 7),
             foreground="#555555",
             background="#f5f5f5",
         )
