@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+import sys
 import time
 import tkinter as tk
 from datetime import datetime
+from pathlib import Path
 from tkinter import filedialog, font, messagebox, ttk
 from typing import Callable, Optional
 
@@ -23,6 +25,13 @@ if __package__ in {None, ""}:  # pragma: no cover - runtime shim for bundled exe
 else:  # Standard package import path
     from .config import AppConfig
     from .excel_manager import ExcelStructureError, append_time_entry, load_reference_data
+
+
+def _asset_path(filename: str) -> str:
+    """Return the absolute path to an asset bundled with the app."""
+
+    base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)  # type: ignore[attr-defined]
+    return str(Path(base_path) / "assets" / filename)
 
 
 class DropdownField(ttk.Frame):
@@ -92,65 +101,47 @@ class DropdownField(ttk.Frame):
 
 
 class IconButton(ttk.Frame):
-    """Canvas-based icon button with a crisp square outline and glyph."""
+    """Image-based icon button that swaps graphics on hover."""
+
+    _image_cache: dict[str, tk.PhotoImage] = {}
 
     def __init__(self, parent: tk.Widget, icon: str, command: Optional[Callable[[], None]]) -> None:
         super().__init__(parent)
         self.command = command
-        self.icon = icon
-        background = "#f4f4f4"
-        if hasattr(parent, "cget"):
-            try:
-                background = parent.cget("background")
-            except tk.TclError:
-                style_name = ""
-                try:
-                    style_name = parent.cget("style")
-                except tk.TclError:
-                    style_name = ""
-                style = ttk.Style()
-                if style_name:
-                    background = style.lookup(style_name, "background", default=background)
-                else:
-                    background = style.lookup(parent.winfo_class(), "background", default=background)
-        self._canvas = tk.Canvas(
+        self._image_normal = self._load_image(icon)
+        self._image_hover = self._load_image(f"{icon}_hover")
+
+        self._button = ttk.Button(
             self,
-            width=60,
-            height=60,
-            highlightthickness=0,
-            borderwidth=0,
-            background=background,
+            image=self._image_normal,
+            command=self._on_click,
+            style="Timesheet.IconButton.TButton",
+            takefocus=False,
         )
-        self._canvas.pack(fill=tk.BOTH, expand=True)
-        self._canvas.configure(cursor="hand2")
-        self._draw_icon()
-        self._canvas.bind("<Button-1>", self._on_click)
-        self._canvas.bind("<Enter>", self._on_enter)
-        self._canvas.bind("<Leave>", self._on_leave)
+        self._button.pack()
+        self._button.configure(cursor="hand2")
+        self._button.bind("<Enter>", self._on_enter)
+        self._button.bind("<Leave>", self._on_leave)
 
-    def _draw_icon(self, hover: bool = False) -> None:
-        self._canvas.delete("all")
-        outline = "#1c1c1c" if not hover else "#000000"
-        fill_color = "#ffffff" if not hover else "#f2f2f2"
-        self._canvas.create_rectangle(10, 10, 50, 50, outline=outline, width=3, fill=fill_color)
-        glyph_color = "#1c1c1c"
-        if self.icon == "play":
-            self._canvas.create_polygon(28, 22, 28, 38, 42, 30, fill=glyph_color, outline=glyph_color)
-        elif self.icon == "pause":
-            self._canvas.create_rectangle(24, 22, 30, 38, fill=glyph_color, outline=glyph_color)
-            self._canvas.create_rectangle(32, 22, 38, 38, fill=glyph_color, outline=glyph_color)
-        elif self.icon == "stop":
-            self._canvas.create_rectangle(24, 24, 38, 38, fill=glyph_color, outline=glyph_color)
+    @classmethod
+    def _load_image(cls, name: str) -> tk.PhotoImage:
+        if name in cls._image_cache:
+            return cls._image_cache[name]
 
-    def _on_click(self, _event: tk.Event) -> None:  # type: ignore[override]
+        path = _asset_path(f"{name}.png")
+        image = tk.PhotoImage(file=path)
+        cls._image_cache[name] = image
+        return image
+
+    def _on_click(self) -> None:
         if callable(self.command):
             self.command()
 
     def _on_enter(self, _event: tk.Event) -> None:  # type: ignore[override]
-        self._draw_icon(hover=True)
+        self._button.configure(image=self._image_hover)
 
     def _on_leave(self, _event: tk.Event) -> None:  # type: ignore[override]
-        self._draw_icon(hover=False)
+        self._button.configure(image=self._image_normal)
 
 
 class TimeTrackerApp(tk.Tk):
@@ -237,6 +228,18 @@ class TimeTrackerApp(tk.Tk):
             background=[("active", "#f4f0ff"), ("pressed", "#ede7ff")],
             bordercolor=[("focus", "#7c3aed"), ("active", "#7c3aed")],
             foreground=[("disabled", "#9f9f9f")],
+        )
+        style.configure(
+            "Timesheet.IconButton.TButton",
+            background="#ffffff",
+            relief="flat",
+            padding=0,
+            borderwidth=0,
+        )
+        style.map(
+            "Timesheet.IconButton.TButton",
+            background=[("active", "#f4f0ff")],
+            relief=[("pressed", "flat")],
         )
         style.configure(
             "Timesheet.Status.TLabel",

@@ -48,9 +48,13 @@
    python -m pip install --upgrade pip
    python -m pip install pyinstaller
    ```
-2. Выполните команду сборки. Использование `python -m PyInstaller` гарантирует запуск даже если папка `Scripts` не добавилась в `PATH`:
+2. Выполните команду сборки. Использование `python -m PyInstaller` гарантирует запуск даже если папка `Scripts` не добавилась в `PATH`. Обратите внимание на параметр `--add-data`, который упаковывает иконки кнопок (для PowerShell/Windows используется `;` в качестве разделителя путей):
    ```bash
-   python -m PyInstaller --noconfirm --onefile --name TimesheetTimer --windowed src/timesheet_app/app.py
+   python -m PyInstaller --noconfirm --onefile --name TimesheetTimer --windowed --add-data src/timesheet_app/assets;timesheet_app/assets src/timesheet_app/app.py
+   ```
+   Если вы запускаете команду на Linux или в WSL, замените `;` на `:`:
+   ```bash
+   python -m PyInstaller --noconfirm --onefile --name TimesheetTimer --windowed --add-data src/timesheet_app/assets:timesheet_app/assets src/timesheet_app/app.py
    ```
 3. Если PowerShell по-прежнему сообщает «Имя "pyinstaller" не распознано», убедитесь, что виртуальное окружение активно (`.venv\Scripts\Activate.ps1`). Затем повторите команды выше.
 4. Готовый файл `TimesheetTimer.exe` будет находиться в каталоге `dist`.
@@ -85,7 +89,15 @@ Timesheet/
 │       ├── __init__.py
 │       ├── __main__.py
 │       ├── app.py
-│       └── config.py
+│       ├── assets/
+│       │   ├── pause.png
+│       │   ├── pause_hover.png
+│       │   ├── play.png
+│       │   ├── play_hover.png
+│       │   ├── stop.png
+│       │   └── stop_hover.png
+│       ├── config.py
+│       └── excel_manager.py
 └── installer/
     └── TimesheetTimer.iss
 ```
