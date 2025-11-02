@@ -17,6 +17,7 @@ class AppConfig:
     """Persisted configuration."""
 
     excel_path: Optional[str] = None
+    theme: str = "apple_light"
 
     @classmethod
     def load(cls) -> "AppConfig":
