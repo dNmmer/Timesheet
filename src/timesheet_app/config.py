@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +17,6 @@ class AppConfig:
     """Persisted configuration."""
 
     excel_path: Optional[str] = None
-    theme: str = "apple_light"
 
     @classmethod
     def load(cls) -> "AppConfig":
@@ -26,7 +25,11 @@ class AppConfig:
         if CONFIG_FILE.exists():
             try:
                 data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-                return cls(**data)
+                if isinstance(data, dict):
+                    allowed = {item.name for item in fields(cls)}
+                    filtered = {key: value for key, value in data.items() if key in allowed}
+                    return cls(**filtered)
+                return cls()
             except (json.JSONDecodeError, TypeError, ValueError):
                 # Fall back to defaults if the file is corrupted.
                 pass
