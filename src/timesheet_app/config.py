@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 
@@ -25,11 +25,7 @@ class AppConfig:
         if CONFIG_FILE.exists():
             try:
                 data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    allowed = {item.name for item in fields(cls)}
-                    filtered = {key: value for key, value in data.items() if key in allowed}
-                    return cls(**filtered)
-                return cls()
+                return cls(**data)
             except (json.JSONDecodeError, TypeError, ValueError):
                 # Fall back to defaults if the file is corrupted.
                 pass
