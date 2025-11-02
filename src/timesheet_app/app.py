@@ -379,8 +379,30 @@ class TimeTrackerApp(tk.Tk):
                     return name
             return fallback
 
-        primary_family = pick_font(("SF Pro Text", "San Francisco", "Helvetica Neue", "Helvetica", "Arial"))
-        display_family = pick_font(("SF Pro Display", "SF Pro Text", "Helvetica Neue", "Helvetica", "Arial"))
+        primary_family = pick_font(
+            (
+                "Proxima Nova",
+                "ProximaNova-Regular",
+                "Proxima Nova Regular",
+                "SF Pro Text",
+                "San Francisco",
+                "Helvetica Neue",
+                "Helvetica",
+                "Arial",
+            )
+        )
+        display_family = pick_font(
+            (
+                "Proxima Nova",
+                "ProximaNova-Semibold",
+                "Proxima Nova Semibold",
+                "SF Pro Display",
+                "SF Pro Text",
+                "Helvetica Neue",
+                "Helvetica",
+                "Arial",
+            )
+        )
 
         self.base_font = tkfont.Font(family=primary_family, size=13)
         self.timer_font = tkfont.Font(
