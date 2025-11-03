@@ -216,7 +216,7 @@ class TimeTrackerApp(tk.Tk):
         style.configure(
             "Timesheet.OptionMenu.TMenubutton",
             font=("Proxima Nova", 9),
-            padding=(14, 8),
+            padding=(14, 2),
             relief="flat",
             borderwidth=1,
             background="#ffffff",
