@@ -180,6 +180,8 @@ class TimeTrackerApp(tk.Tk):
         self.minsize(420, 280)
         self.resizable(True, True)
         self.configure(background="#f5f5f5")
+        # Переустановим заголовок окна корректной Unicode-строкой
+        self.title("\u0423\u0447\u0435\u0442 \u0440\u0430\u0431\u043e\u0447\u0435\u0433\u043e \u0432\u0440\u0435\u043c\u0435\u043d\u0438")
 
         self.config_manager = AppConfig.load()
         self.projects: list[str] = []
