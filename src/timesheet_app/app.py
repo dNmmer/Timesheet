@@ -18,6 +18,8 @@ if __package__ in {None, ""}:  # pragma: no cover - runtime shim for bundled exe
         from timesheet_app.config import AppConfig
         from timesheet_app.excel_manager import (
             ExcelStructureError,
+            REFERENCE_SHEET,
+            TIMESHEET_SHEET,
             append_time_entry,
             load_reference_data,
         )
@@ -26,7 +28,13 @@ if __package__ in {None, ""}:  # pragma: no cover - runtime shim for bundled exe
         from excel_manager import ExcelStructureError, append_time_entry, load_reference_data
 else:  # Standard package import path
     from .config import AppConfig
-    from .excel_manager import ExcelStructureError, append_time_entry, load_reference_data
+    from .excel_manager import (
+        ExcelStructureError,
+        REFERENCE_SHEET,
+        TIMESHEET_SHEET,
+        append_time_entry,
+        load_reference_data,
+    )
 
 
 def _asset_path(filename: str) -> str:
@@ -52,21 +60,31 @@ class DropdownField(ttk.Frame):
         self.label = ttk.Label(self, text=label_text, style="Timesheet.Label")
         self.label.pack(anchor=tk.W, pady=(0, 4))
 
-        self.option_menu = ttk.OptionMenu(self, variable, variable.get())
-        self.option_menu.configure(style="Timesheet.OptionMenu.TMenubutton", width=20)
-        self.option_menu.pack(fill=tk.X)
-        self.option_menu["menu"].configure(font=self._menu_font)
+        self.combobox = ttk.Combobox(
+            self,
+            textvariable=variable,
+            state="readonly",
+            width=20,
+            style="Timesheet.TCombobox",
+        )
+        self.combobox.pack(fill=tk.X)
 
     def set_options(self, options: list[str], *, selected: Optional[str] = None) -> None:
         """Populate the dropdown with the provided options."""
 
         self._choices = options[:]
-        menu = self.option_menu["menu"]
-        menu.delete(0, "end")
+        # menu removed (OptionMenu -> Combobox)
+        # no explicit clearing needed for Combobox values
+
+        if not options:
+            self.combobox.configure(state="disabled", values=[])
+            self.variable.set("")
+            self.refresh_width()
+            return
 
         if options:
-            for option in options:
-                menu.add_command(label=option, command=lambda value=option: self.variable.set(value))
+            self.combobox.configure(state="readonly", values=options)
+            # values are already set on Combobox; no per-item commands needed
 
             if selected in options:
                 self.variable.set(selected)
@@ -86,13 +104,13 @@ class DropdownField(ttk.Frame):
         """Refresh the visible width based on the longest option."""
 
         if not self._choices:
-            self.option_menu.configure(width=20)
+            self.combobox.configure(width=20)
             return
 
         max_pixels = max(self._menu_font.measure(item) for item in self._choices)
         average_char = max(self._menu_font.measure("0"), 1)
         width_chars = max(20, min(int(math.ceil((max_pixels + 24) / average_char)), 64))
-        self.option_menu.configure(width=width_chars)
+        self.combobox.configure(width=width_chars)
 
     def measure_longest_option(self) -> int:
         """Return the pixel width of the longest option."""
@@ -261,6 +279,11 @@ class TimeTrackerApp(tk.Tk):
         file_menu.add_command(label="Выход", command=self.destroy)
         menu_bar.add_cascade(label="Файл", menu=file_menu)
 
+        # Меню "Помощь" справа от "Файл"
+        help_menu = tk.Menu(menu_bar, tearoff=False)
+        help_menu.add_command(label="�����⨢�� � Excel...", command=self._show_excel_requirements)
+        menu_bar.add_cascade(label="�������", menu=help_menu)
+
         self.config(menu=menu_bar)
 
     def _insert_open_current_file_menu(self) -> None:
@@ -294,6 +317,16 @@ class TimeTrackerApp(tk.Tk):
                 subprocess.Popen(["xdg-open", path])
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Ошибка", f"Не удалось открыть файл:\n{exc}")
+
+    def _show_excel_requirements(self) -> None:
+        """Показать требования к структуре Excel-файла."""
+        msg = (
+            f"���� Excel ������ ��������� ��� '{REFERENCE_SHEET}'.\n"
+            "� ��� ���� ���᪮��: ������ � ��� ����� (�� 2-�� ������).\n\n"
+            f"����� ����� ��� '{TIMESHEET_SHEET}', ��� ���������� ���������� ������:\n"
+            "- ����\n- ������\n- ��� �����\n- ����������� (������ �����)."
+        )
+        messagebox.showinfo("���������� � Excel", msg)
 
     def _build_layout(self) -> None:
         padding = {"padx": 16, "pady": 8}
