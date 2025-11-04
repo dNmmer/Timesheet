@@ -469,6 +469,13 @@ class TimeTrackerApp(tk.Tk):
         self.work_field.refresh_width()
         self._status_label.configure(wraplength=max(desired_width - 40, 200))
 
+    # Переопределяем метод для корректного текста в статус‑строке
+    def _refresh_status(self) -> None:  # type: ignore[override]
+        if self.config_manager.excel_path:
+            self.status_var.set(f"\u0424\u0430\u0439\u043b: {self.config_manager.excel_path}")
+        else:
+            self.status_var.set("\u0424\u0430\u0439\u043b Excel \u043d\u0435 \u0432\u044b\u0431\u0440\u0430\u043d")
+
     def _fix_menu_labels_for_locale(self) -> None:
         """Полностью перестроить меню с корректными Unicode‑подписями.
 
@@ -529,6 +536,11 @@ class TimeTrackerApp(tk.Tk):
             "- \u0414\u0430\u0442\u0430\n- \u041f\u0440\u043e\u0435\u043a\u0442\n- \u0412\u0438\u0434 \u0440\u0430\u0431\u043e\u0442\n- \u0414\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c (\u0444\u043e\u0440\u043c\u0430\u0442 \u0412\u0440\u0435\u043c\u044f)."
         )
         label = ttk.Label(body, text=msg, justify=tk.LEFT, anchor=tk.W, style="Timesheet.Status.TLabel")
+        # Текст в окне помощи — тем же шрифтом, что и меню
+        try:
+            label.configure(font=font.nametofont("TkMenuFont"))
+        except Exception:
+            pass
         label.pack(fill=tk.BOTH, expand=True)
 
         buttons = ttk.Frame(body)
@@ -557,6 +569,11 @@ class TimeTrackerApp(tk.Tk):
                     messagebox.showerror("\u041e\u0448\u0438\u0431\u043a\u0430", f"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c Excel \u0444\u0430\u0439\u043b:\n{exc}")
                     return
                 self._refresh_status()
+                # Откроем созданный файл для ввода данных
+                try:
+                    self._open_current_file()
+                except Exception:
+                    pass
                 messagebox.showinfo("\u0413\u043e\u0442\u043e\u0432\u043e", "\u0428\u0430\u0431\u043b\u043e\u043d \u0441\u043e\u0437\u0434\u0430\u043d \u0438 \u0432\u044b\u0431\u0440\u0430\u043d.")
                 win.destroy()
             except Exception as exc:  # pylint: disable=broad-except
