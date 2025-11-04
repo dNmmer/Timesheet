@@ -22,6 +22,7 @@ if __package__ in {None, ""}:  # pragma: no cover - runtime shim for bundled exe
             TIMESHEET_SHEET,
             append_time_entry,
             load_reference_data,
+            create_template,
         )
     except ModuleNotFoundError:  # Running as a loose script without installation
         from config import AppConfig
@@ -34,6 +35,7 @@ else:  # Standard package import path
         TIMESHEET_SHEET,
         append_time_entry,
         load_reference_data,
+        create_template,
     )
 
 
@@ -509,13 +511,67 @@ class TimeTrackerApp(tk.Tk):
 
     # Дублирующее определение для корректного текста диалога (перекроет предыдущий метод)
     def _show_excel_requirements(self) -> None:  # type: ignore[override]
+        # Build a custom modal dialog with a "Создать шаблон" button
+        win = tk.Toplevel(self)
+        win.title("\u0422\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044f \u043a Excel-\u0444\u0430\u0439\u043b\u0443")
+        win.transient(self)
+        win.resizable(False, False)
+        win.configure(background="#f5f5f5")
+        win.grab_set()
+
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill=tk.BOTH, expand=True)
+
         msg = (
             f"\u0424\u0430\u0439\u043b Excel \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043e\u0434\u0435\u0440\u0436\u0430\u0442\u044c \u043b\u0438\u0441\u0442 '{REFERENCE_SHEET}'.\n"
             "\u0412 \u043d\u0451\u043c \u0434\u0432\u0430 \u0441\u0442\u043e\u043b\u0431\u0446\u0430: \u041f\u0440\u043e\u0435\u043a\u0442 \u0438 \u0412\u0438\u0434 \u0440\u0430\u0431\u043e\u0442.\n\n"
             f"\u0422\u0430\u043a\u0436\u0435 \u043d\u0443\u0436\u0435\u043d \u043b\u0438\u0441\u0442 '{TIMESHEET_SHEET}', \u043a\u0443\u0434\u0430 \u0434\u043e\u0431\u0430\u0432\u043b\u044f\u044e\u0442\u0441\u044f \u0437\u0430\u043f\u0438\u0441\u0438:\n"
             "- \u0414\u0430\u0442\u0430\n- \u041f\u0440\u043e\u0435\u043a\u0442\n- \u0412\u0438\u0434 \u0440\u0430\u0431\u043e\u0442\n- \u0414\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u043e\u0441\u0442\u044c (\u0444\u043e\u0440\u043c\u0430\u0442 \u0412\u0440\u0435\u043c\u044f)."
         )
-        messagebox.showinfo("\u0422\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044f \u043a Excel-\u0444\u0430\u0439\u043b\u0443", msg)
+        label = ttk.Label(body, text=msg, justify=tk.LEFT, anchor=tk.W, style="Timesheet.Status.TLabel")
+        label.pack(fill=tk.BOTH, expand=True)
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill=tk.X, pady=(12, 0))
+
+        def on_create_template() -> None:
+            if not messagebox.askokcancel("\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0444\u0430\u0439\u043b?", "\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0444\u0430\u0439\u043b?"):
+                return
+            save_path = filedialog.asksaveasfilename(
+                parent=win,
+                title="\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u0430\u043a",
+                defaultextension=".xlsx",
+                filetypes=(("Excel", "*.xlsx"), ("All files", "*.*")),
+                initialfile="timesheet_template.xlsx",
+            )
+            if not save_path:
+                return
+            try:
+                create_template(save_path)
+                # adopt the new file into the app
+                self.config_manager.excel_path = save_path
+                self.config_manager.save()
+                try:
+                    self._load_reference(save_path)
+                except Exception as exc:  # pylint: disable=broad-except
+                    messagebox.showerror("\u041e\u0448\u0438\u0431\u043a\u0430", f"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c Excel \u0444\u0430\u0439\u043b:\n{exc}")
+                    return
+                self._refresh_status()
+                messagebox.showinfo("\u0413\u043e\u0442\u043e\u0432\u043e", "\u0428\u0430\u0431\u043b\u043e\u043d \u0441\u043e\u0437\u0434\u0430\u043d \u0438 \u0432\u044b\u0431\u0440\u0430\u043d.")
+                win.destroy()
+            except Exception as exc:  # pylint: disable=broad-except
+                messagebox.showerror("\u041e\u0448\u0438\u0431\u043a\u0430", f"\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0437\u0434\u0430\u0442\u044c \u0444\u0430\u0439\u043b:\n{exc}")
+
+        create_btn = ttk.Button(buttons, text="\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0448\u0430\u0431\u043b\u043e\u043d", command=on_create_template)
+        ok_btn = ttk.Button(buttons, text="OK", command=win.destroy)
+        create_btn.pack(side=tk.LEFT)
+        ok_btn.pack(side=tk.RIGHT)
+
+        # Center dialog over parent
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() // 2) - (win.winfo_width() // 2)
+        y = self.winfo_rooty() + (self.winfo_height() // 2) - (win.winfo_height() // 2)
+        win.geometry(f"+{x}+{y}")
     def start_timer(self) -> None:
         if not self.config_manager.excel_path:
             messagebox.showwarning("Нет файла", "Сначала выберите Excel файл через меню 'Файл'.")

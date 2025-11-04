@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 
 
 REFERENCE_SHEET = "Справочник"
@@ -93,3 +93,26 @@ def append_time_entry(
     )
 
     workbook.save(workbook_path)
+
+
+def create_template(path: Path | str) -> None:
+    """Create a new Excel workbook with required sheets and headers.
+
+    The workbook contains:
+    - Reference sheet with two columns: Project, Work type
+    - Timesheet sheet with columns: Date, Project, Work type, Duration
+    """
+
+    workbook_path = Path(path)
+    wb = Workbook()
+    # remove default sheet for controlled order
+    default = wb.active
+    wb.remove(default)
+
+    ws_ref = wb.create_sheet(REFERENCE_SHEET)
+    ws_ref.append(["Проект", "Вид работ"])  # headers
+
+    ws_ts = wb.create_sheet(TIMESHEET_SHEET)
+    ws_ts.append(["Дата", "Проект", "Вид работ", "Длительность"])  # headers
+
+    wb.save(workbook_path)
