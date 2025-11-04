@@ -24,9 +24,11 @@ if __package__ in {None, ""}:  # pragma: no cover - runtime shim for bundled exe
             load_reference_data,
             create_template,
         )
+        from timesheet_app.version import VERSION
     except ModuleNotFoundError:  # Running as a loose script without installation
         from config import AppConfig
         from excel_manager import ExcelStructureError, append_time_entry, load_reference_data
+        from version import VERSION
 else:  # Standard package import path
     from .config import AppConfig
     from .excel_manager import (
@@ -37,6 +39,7 @@ else:  # Standard package import path
         load_reference_data,
         create_template,
     )
+    from .version import VERSION
 
 
 def _asset_path(filename: str) -> str:
@@ -76,6 +79,9 @@ class DropdownField(ttk.Frame):
             style="Timesheet.TCombobox",
         )
         self.combobox.pack(fill=tk.X)
+        # После выбора значения убираем выделение текста в поле
+        self.combobox.bind('<<ComboboxSelected>>', self._on_combo_selected)
+        self.combobox.bind('<FocusIn>', lambda e: self.combobox.selection_clear())
 
     def set_options(self, options: list[str], *, selected: Optional[str] = None) -> None:
         """Populate the dropdown with the provided options."""
@@ -126,6 +132,14 @@ class DropdownField(ttk.Frame):
         if not self._choices:
             return 0
         return max(self._menu_font.measure(item) for item in self._choices)
+
+    def _on_combo_selected(self, _event: tk.Event) -> None:  # type: ignore[override]
+        try:
+            # Снимаем выделение и ставим курсор в конец (на случай editmode)
+            self.combobox.selection_clear()
+            self.combobox.icursor('end')
+        except Exception:
+            pass
 
 
 class IconButton(ttk.Frame):
@@ -506,11 +520,22 @@ class TimeTrackerApp(tk.Tk):
                 label="\u0422\u0440\u0435\u0431\u043e\u0432\u0430\u043d\u0438\u044f \u043a Excel-\u0444\u0430\u0439\u043b\u0443...",
                 command=self._show_excel_requirements,
             )
+            help_menu.add_separator()
+            help_menu.add_command(
+                label="\u041e \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0438",
+                command=self._show_about,
+            )
             menu_bar.add_cascade(label="\u041f\u043e\u043c\u043e\u0449\u044c", menu=help_menu)
 
             self.config(menu=menu_bar)
         except Exception:
             pass
+
+    def _show_about(self) -> None:
+        messagebox.showinfo(
+            "\u041e \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u0438",
+            f"Timesheet\n\u0412\u0435\u0440\u0441\u0438\u044f: {VERSION}",
+        )
 
     # ------------------------------------------------------------------
     # Timer logic
