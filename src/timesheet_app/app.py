@@ -155,6 +155,9 @@ class DropdownField(ttk.Frame):
         try:
             self.combobox.selection_clear()
             self.combobox.icursor("end")
+            # Переводим фокус на контейнер, чтобы убрать синий бэкграунд Windows
+            # и визуально не подсвечивать поле после выбора значения.
+            self.focus_set()
         except Exception:  # pragma: no cover - защита от платформенных мелочей
             pass
 
@@ -633,4 +636,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
