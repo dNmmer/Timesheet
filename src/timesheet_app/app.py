@@ -329,6 +329,8 @@ class TimeTrackerApp(tk.Tk):
         file_menu = tk.Menu(menu_bar, tearoff=False)
         file_menu.add_command(label="Выбрать файл Excel", command=self._prompt_for_excel)
         file_menu.add_command(label="Открыть текущий файл", command=self._open_current_file)
+        # Подменю «Обновить»: перечитать лист «Справочник» из выбранного файла
+        file_menu.add_command(label="Обновить", command=self._reload_reference)
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=self.destroy)
         menu_bar.add_cascade(label="Файл", menu=file_menu)
@@ -366,6 +368,22 @@ class TimeTrackerApp(tk.Tk):
                 subprocess.Popen(["xdg-open", path])
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Ошибка", f"Не удалось открыть файл:\n{exc}")
+
+    def _reload_reference(self) -> None:
+        """Перечитать лист «Справочник» из выбранного файла.
+
+        Нужна, когда пользователь правит справочник (проекты/виды работ) и хочет
+        увидеть изменения без перезапуска приложения.
+        """
+
+        if not self.config_manager.excel_path:
+            messagebox.showwarning("Нет файла", "Сначала выберите Excel файл через меню 'Файл'.")
+            return
+        try:
+            self._load_reference(self.config_manager.excel_path)
+            self.status_var.set("Справочник обновлён")
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Ошибка", f"Не удалось обновить справочник:\n{exc}")
 
     def _show_excel_requirements(self) -> None:
         """Показать модальное окно с требованиями к Excel и кнопкой "Создать шаблон"."""

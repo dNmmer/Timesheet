@@ -75,7 +75,11 @@ def append_time_entry(
     elapsed_seconds: float,
     finished_at: datetime | None = None,
 ) -> None:
-    """Добавить строку на лист учёта времени (дата, проект, вид работ, длительность)."""
+    """Добавить строку на лист учёта времени (дата, проект, вид работ, длительность).
+
+    В отличие от простого `sheet.append`, мы ищем первую по-настоящему пустую
+    строку, игнорируя форматирование (цвета, границы) и удалённые строки.
+    """
 
     workbook_path = Path(path)
     if not workbook_path.exists():
@@ -93,14 +97,36 @@ def append_time_entry(
 
     duration = timedelta(seconds=elapsed_seconds)
 
-    sheet.append(
-        [
-            timestamp.date(),
-            project,
-            work_type,
-            duration,
-        ]
-    )
+    # Поиск первой полностью пустой строки, начиная со 2-й (после заголовков)
+    def is_empty_row(r: int) -> bool:
+        return (
+            sheet.cell(row=r, column=1).value is None
+            and sheet.cell(row=r, column=2).value is None
+            and sheet.cell(row=r, column=3).value is None
+            and sheet.cell(row=r, column=4).value is None
+        )
+
+    first = 2
+    last = sheet.max_row
+    target_row = None
+    for r in range(first, last + 1):
+        if is_empty_row(r):
+            target_row = r
+            break
+    if target_row is None:
+        target_row = last + 1
+
+    # Записываем значения по ячейкам — так мы не зависим от sheet.append
+    sheet.cell(row=target_row, column=1).value = timestamp.date()
+    sheet.cell(row=target_row, column=2).value = project
+    sheet.cell(row=target_row, column=3).value = work_type
+    cell_duration = sheet.cell(row=target_row, column=4)
+    cell_duration.value = duration
+    # Красивый формат времени часов:минуты:секунды
+    try:
+        cell_duration.number_format = "[h]:mm:ss"
+    except Exception:
+        pass
 
     workbook.save(workbook_path)
 
@@ -123,4 +149,3 @@ def create_template(path: Path | str) -> None:
     ws_ts.append(["Дата", "Проект", "Вид работ", "Длительность"])  # заголовки
 
     wb.save(workbook_path)
-
