@@ -1,169 +1,248 @@
-"""Tkinter user interface for the Timesheet timer."""
+"""Графический интерфейс (Tkinter) для таймера учёта времени.
+
+Кратко о возможностях:
+- выбор проекта и вида работ из Excel-справочника;
+- таймер с кнопками Старт/Пауза/Стоп;
+- запись результата в книгу Excel (лист "Учет времени");
+- меню Файл/Помощь; в Помощи есть окно с требованиями и кнопкой "Создать шаблон";
+- строка состояния внизу окна с путём к выбранному файлу.
+"""
 
 from __future__ import annotations
 
 import math
+import os
+import subprocess
+import sys
 import time
 import tkinter as tk
 from datetime import datetime
+from pathlib import Path
 from tkinter import filedialog, font, messagebox, ttk
 from typing import Callable, Optional
 
-if __package__ in {None, ""}:  # pragma: no cover - runtime shim for bundled execution
+
+# Импорты одинаково работают и при запуске из исходников, и при запуске из пакета
+if __package__ in {None, ""}:  # pragma: no cover - запуск как скрипт
     try:
         from timesheet_app.config import AppConfig
         from timesheet_app.excel_manager import (
             ExcelStructureError,
+            REFERENCE_SHEET,
+            TIMESHEET_SHEET,
             append_time_entry,
             load_reference_data,
+            create_template,
         )
-    except ModuleNotFoundError:  # Running as a loose script without installation
-        from config import AppConfig
-        from excel_manager import ExcelStructureError, append_time_entry, load_reference_data
-else:  # Standard package import path
+        from timesheet_app.version import VERSION
+    except ModuleNotFoundError:  # скрипт рядом с файлами
+        from config import AppConfig  # type: ignore
+        from excel_manager import (  # type: ignore
+            ExcelStructureError,
+            REFERENCE_SHEET,
+            TIMESHEET_SHEET,
+            append_time_entry,
+            load_reference_data,
+            create_template,
+        )
+        from version import VERSION  # type: ignore
+else:  # стандартный путь импорта пакета
     from .config import AppConfig
-    from .excel_manager import ExcelStructureError, append_time_entry, load_reference_data
+    from .excel_manager import (
+        ExcelStructureError,
+        REFERENCE_SHEET,
+        TIMESHEET_SHEET,
+        WORKDAY_SHEET,
+        append_time_entry,
+        load_reference_data,
+        create_template,
+        workday_start,
+        workday_end,
+    )
+    from .version import VERSION
+
+
+def _asset_path(filename: str) -> str:
+    """Вернуть абсолютный путь к ресурсу (иконке).
+
+    - при запуске из исходников ресурсы лежат в `assets` рядом с `app.py`;
+    - при запуске из EXE (PyInstaller) ресурсы распакованы во временный каталог
+      `_MEIPASS`. Поддерживаем две схемы: `assets/<file>` и
+      `timesheet_app/assets/<file>`.
+    """
+
+    base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)  # type: ignore[attr-defined]
+    primary = Path(base_path) / "assets" / filename
+    if primary.exists():
+        return str(primary)
+    alt = Path(base_path) / "timesheet_app" / "assets" / filename
+    return str(alt if alt.exists() else primary)
 
 
 class DropdownField(ttk.Frame):
-    """Labeled dropdown field that mimics a modern select control."""
+    """Поле с подписью и выпадающим списком (Combobox)."""
+
+    _image_cache: dict[str, tk.PhotoImage] = {}
 
     def __init__(self, parent: tk.Widget, label_text: str, variable: tk.StringVar) -> None:
         super().__init__(parent)
         self.variable = variable
         self._choices: list[str] = []
+
+        # Шрифт для вычисления ширины списков
         try:
-            self._menu_font = font.Font(family="Proxima Nova", size=9)
+            family = "Segoe UI" if sys.platform.startswith("win") else "Arial"
+            self._menu_font = font.Font(family=family, size=9)
         except tk.TclError:
             self._menu_font = font.nametofont("TkMenuFont")
-            self._menu_font.configure(family="Proxima Nova", size=9)
 
         self.label = ttk.Label(self, text=label_text, style="Timesheet.Label")
         self.label.pack(anchor=tk.W, pady=(0, 4))
 
-        self.option_menu = ttk.OptionMenu(self, variable, variable.get())
-        self.option_menu.configure(style="Timesheet.OptionMenu.TMenubutton", width=20)
-        self.option_menu.pack(fill=tk.X)
-        self.option_menu["menu"].configure(font=self._menu_font)
+        # Используем Combobox: выпадающий список открывается под полем
+        self.combobox = ttk.Combobox(
+            self,
+            textvariable=variable,
+            state="readonly",
+            width=20,
+            style="Timesheet.TCombobox",
+        )
+        self.combobox.pack(fill=tk.X)
+        # После выбора пункта убираем выделение текста
+        self.combobox.bind("<<ComboboxSelected>>", self._on_combo_selected)
+        # Даже если пользователь просто открыл/закрыл список без изменения,
+        # Windows оставляет выделение. Уберём его отложенно и снимем фокус.
+        self.combobox.bind("<FocusIn>", self._on_focus_in)
+        self.combobox.bind("<ButtonRelease-1>", self._on_mouse_release)
 
     def set_options(self, options: list[str], *, selected: Optional[str] = None) -> None:
-        """Populate the dropdown with the provided options."""
+        """Задать список значений и выбрать начальное."""
 
         self._choices = options[:]
-        menu = self.option_menu["menu"]
-        menu.delete(0, "end")
 
-        if options:
-            for option in options:
-                menu.add_command(label=option, command=lambda value=option: self.variable.set(value))
-
-            if selected in options:
-                self.variable.set(selected)
-            elif self.variable.get() in options:
-                # Keep the previously selected value.
-                pass
-            else:
-                self.variable.set(options[0])
-        else:
-            placeholder = "Нет данных"
-            menu.add_command(label=placeholder, state="disabled")
+        if not options:
+            self.combobox.configure(state="disabled", values=[])
             self.variable.set("")
+            self.refresh_width()
+            return
+
+        self.combobox.configure(state="readonly", values=options)
+        if selected in options:
+            self.variable.set(selected)
+        elif self.variable.get() in options:
+            pass  # оставляем предыдущее значение
+        else:
+            self.variable.set(options[0])
 
         self.refresh_width()
 
     def refresh_width(self) -> None:
-        """Refresh the visible width based on the longest option."""
+        """Подобрать ширину виджета по самому длинному варианту."""
 
         if not self._choices:
-            self.option_menu.configure(width=20)
+            self.combobox.configure(width=20)
             return
 
         max_pixels = max(self._menu_font.measure(item) for item in self._choices)
         average_char = max(self._menu_font.measure("0"), 1)
         width_chars = max(20, min(int(math.ceil((max_pixels + 24) / average_char)), 64))
-        self.option_menu.configure(width=width_chars)
+        self.combobox.configure(width=width_chars)
 
     def measure_longest_option(self) -> int:
-        """Return the pixel width of the longest option."""
+        """Вернуть ширину (px) самого длинного значения."""
 
         if not self._choices:
             return 0
         return max(self._menu_font.measure(item) for item in self._choices)
 
+    def _on_combo_selected(self, _event: tk.Event) -> None:  # type: ignore[override]
+        """Убрать выделение текста после выбора."""
+
+        try:
+            self.combobox.selection_clear()
+            self.combobox.icursor("end")
+            # Переводим фокус на контейнер, чтобы убрать синий бэкграунд Windows
+            # и визуально не подсвечивать поле после выбора значения.
+            self.focus_set()
+        except Exception:  # pragma: no cover - защита от платформенных мелочей
+            pass
+
+    def _on_focus_in(self, _event: tk.Event) -> None:  # type: ignore[override]
+        """Снять выделение, если фокус попал в комбобокс без изменения значения."""
+
+        def _defocus() -> None:
+            try:
+                self.combobox.selection_clear()
+                self.combobox.icursor("end")
+                self.focus_set()
+            except Exception:
+                pass
+
+        # Отложим на следующий тик цикла событий, чтобы перебить штатное выделение.
+        self.after_idle(_defocus)
+
+    def _on_mouse_release(self, _event: tk.Event) -> None:  # type: ignore[override]
+        """После закрытия списка мышью убираем выделение и фокус."""
+
+        self.after(10, lambda: (self.combobox.selection_clear(), self.focus_set()))
+
 
 class IconButton(ttk.Frame):
-    """Canvas-based icon button with a crisp square outline and glyph."""
+    """Кнопка-иконка: меняет изображение при наведении мыши."""
+
+    _image_cache: dict[str, tk.PhotoImage] = {}
 
     def __init__(self, parent: tk.Widget, icon: str, command: Optional[Callable[[], None]]) -> None:
         super().__init__(parent)
         self.command = command
-        self.icon = icon
-        background = "#f4f4f4"
-        if hasattr(parent, "cget"):
-            try:
-                background = parent.cget("background")
-            except tk.TclError:
-                style_name = ""
-                try:
-                    style_name = parent.cget("style")
-                except tk.TclError:
-                    style_name = ""
-                style = ttk.Style()
-                if style_name:
-                    background = style.lookup(style_name, "background", default=background)
-                else:
-                    background = style.lookup(parent.winfo_class(), "background", default=background)
-        self._canvas = tk.Canvas(
+        self._image_normal = self._load_image(icon)
+        self._image_hover = self._load_image(f"{icon}_hover")
+
+        self._button = ttk.Button(
             self,
-            width=60,
-            height=60,
-            highlightthickness=0,
-            borderwidth=0,
-            background=background,
+            image=self._image_normal,
+            command=self._on_click,
+            style="Timesheet.IconButton.TButton",
+            takefocus=False,
         )
-        self._canvas.pack(fill=tk.BOTH, expand=True)
-        self._canvas.configure(cursor="hand2")
-        self._draw_icon()
-        self._canvas.bind("<Button-1>", self._on_click)
-        self._canvas.bind("<Enter>", self._on_enter)
-        self._canvas.bind("<Leave>", self._on_leave)
+        self._button.pack()
+        self._button.configure(cursor="hand2")
+        self._button.bind("<Enter>", self._on_enter)
+        self._button.bind("<Leave>", self._on_leave)
 
-    def _draw_icon(self, hover: bool = False) -> None:
-        self._canvas.delete("all")
-        outline = "#1c1c1c" if not hover else "#000000"
-        fill_color = "#ffffff" if not hover else "#f2f2f2"
-        self._canvas.create_rectangle(10, 10, 50, 50, outline=outline, width=3, fill=fill_color)
-        glyph_color = "#1c1c1c"
-        if self.icon == "play":
-            self._canvas.create_polygon(28, 22, 28, 38, 42, 30, fill=glyph_color, outline=glyph_color)
-        elif self.icon == "pause":
-            self._canvas.create_rectangle(24, 22, 30, 38, fill=glyph_color, outline=glyph_color)
-            self._canvas.create_rectangle(32, 22, 38, 38, fill=glyph_color, outline=glyph_color)
-        elif self.icon == "stop":
-            self._canvas.create_rectangle(24, 24, 38, 38, fill=glyph_color, outline=glyph_color)
+    @classmethod
+    def _load_image(cls, name: str) -> tk.PhotoImage:
+        if name in cls._image_cache:
+            return cls._image_cache[name]
+        path = _asset_path(f"{name}.png")
+        image = tk.PhotoImage(file=path)
+        cls._image_cache[name] = image
+        return image
 
-    def _on_click(self, _event: tk.Event) -> None:  # type: ignore[override]
+    def _on_click(self) -> None:
         if callable(self.command):
             self.command()
 
     def _on_enter(self, _event: tk.Event) -> None:  # type: ignore[override]
-        self._draw_icon(hover=True)
+        self._button.configure(image=self._image_hover)
 
     def _on_leave(self, _event: tk.Event) -> None:  # type: ignore[override]
-        self._draw_icon(hover=False)
+        self._button.configure(image=self._image_normal)
 
 
 class TimeTrackerApp(tk.Tk):
-    """Main application window."""
+    """Главное окно приложения: меню, форма, таймер и строка состояния."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.title("Учет рабочего времени")
-        self.geometry("440x300")
-        self.minsize(420, 280)
+        # Окно
+        self.title("Учёт рабочего времени")
+        self.geometry("440x340")
+        self.minsize(420, 320)
         self.resizable(True, True)
         self.configure(background="#f5f5f5")
 
+        # Конфиг и состояние
         self.config_manager = AppConfig.load()
         self.projects: list[str] = []
         self.work_types: list[str] = []
@@ -183,6 +262,7 @@ class TimeTrackerApp(tk.Tk):
         self._build_layout()
         self._refresh_status()
 
+        # Если файл уже выбран — пробуем загрузить справочники
         if self.config_manager.excel_path:
             try:
                 self._load_reference(self.config_manager.excel_path)
@@ -191,15 +271,16 @@ class TimeTrackerApp(tk.Tk):
                 self.config_manager.excel_path = None
                 self.config_manager.save()
                 self._refresh_status()
-
+        # Если данных нет — предложим выбрать файл после старта
         if not self.projects or not self.work_types:
             self.after(100, self._prompt_for_excel)
+        else:
+            # Если данные подгружены — разрешим выбор
+            self._set_inputs_enabled(True)
 
-    # ------------------------------------------------------------------
-    # UI construction helpers
-    # ------------------------------------------------------------------
+    # ------------------------- Построение UI -------------------------
     def _configure_styles(self) -> None:
-        """Configure ttk styles and default fonts for the app."""
+        """Настроить тему и стили виджетов ttk."""
 
         style = ttk.Style(self)
         try:
@@ -207,76 +288,248 @@ class TimeTrackerApp(tk.Tk):
         except tk.TclError:
             pass
 
+        # Шрифты
+        family = "Segoe UI" if sys.platform.startswith("win") else "Arial"
         try:
             default_font = font.nametofont("TkDefaultFont")
-            default_font.configure(family="Proxima Nova", size=9)
+            default_font.configure(family=family, size=9)
         except tk.TclError:
             pass
-
         try:
             menu_font = font.nametofont("TkMenuFont")
-            menu_font.configure(family="Proxima Nova", size=9)
+            menu_font.configure(family=family, size=9)
         except tk.TclError:
             pass
 
+        # Стили
         style.configure("TFrame", background="#f5f5f5")
-        style.configure("Timesheet.Label", font=("Proxima Nova", 9), foreground="#1f1f1f", background="#f5f5f5")
-        style.configure("Timesheet.Timer.TLabel", font=("Proxima Nova", 32, "bold"), foreground="#1f1f1f", background="#f5f5f5")
+        style.configure("Timesheet.Label", font=(family, 9), foreground="#1f1f1f", background="#f5f5f5")
+        style.configure("Timesheet.Timer.TLabel", font=(family, 32, "bold"), foreground="#1f1f1f", background="#f5f5f5")
         style.configure(
-            "Timesheet.OptionMenu.TMenubutton",
-            font=("Proxima Nova", 9),
-            padding=(14, 8),
+            "Timesheet.TCombobox",
+            padding=(6, 2),
             relief="flat",
             borderwidth=1,
-            background="#ffffff",
             foreground="#1f1f1f",
-            bordercolor="#7c3aed",
-        )
-        style.map(
-            "Timesheet.OptionMenu.TMenubutton",
-            background=[("active", "#f4f0ff"), ("pressed", "#ede7ff")],
-            bordercolor=[("focus", "#7c3aed"), ("active", "#7c3aed")],
-            foreground=[("disabled", "#9f9f9f")],
+            fieldbackground="#ffffff",
+            background="#ffffff",
         )
         style.configure(
-            "Timesheet.Status.TLabel",
-            font=("Proxima Nova", 7),
-            foreground="#555555",
-            background="#f5f5f5",
+            "Timesheet.IconButton.TButton",
+            background="#ffffff",
+            relief="flat",
+            padding=0,
+            borderwidth=0,
         )
+        style.configure("Timesheet.Status.TLabel", font=(family, 9), foreground="#555555", background="#f5f5f5")
 
     def _build_menu(self) -> None:
+        """Создать меню приложения (Файл/Помощь)."""
+
         menu_bar = tk.Menu(self)
 
+        # Файл
         file_menu = tk.Menu(menu_bar, tearoff=False)
         file_menu.add_command(label="Выбрать файл Excel", command=self._prompt_for_excel)
-        file_menu.add_command(label="Текущий файл", command=self._show_current_file)
+        file_menu.add_command(label="Открыть текущий файл", command=self._open_current_file)
+        # Подменю «Обновить»: перечитать лист «Справочник» из выбранного файла
+        file_menu.add_command(label="Обновить", command=self._reload_reference)
         file_menu.add_separator()
         file_menu.add_command(label="Выход", command=self.destroy)
         menu_bar.add_cascade(label="Файл", menu=file_menu)
 
+        # Помощь
+        help_menu = tk.Menu(menu_bar, tearoff=False)
+        help_menu.add_command(label="Требования к Excel-файлу...", command=self._show_excel_requirements)
+        help_menu.add_separator()
+        help_menu.add_command(label="О приложении", command=self._show_about)
+        menu_bar.add_cascade(label="Помощь", menu=help_menu)
+
         self.config(menu=menu_bar)
 
+    def _show_about(self) -> None:
+        """Показать информацию о версии приложения."""
+
+        messagebox.showinfo("О приложении", f"Timesheet\nВерсия: {VERSION}")
+
+    def _open_current_file(self) -> None:
+        """Открыть текущий выбранный Excel-файл средствами ОС."""
+
+        path = self.config_manager.excel_path
+        if not path:
+            messagebox.showinfo("Текущий файл", "Файл Excel не выбран")
+            return
+        try:
+            if not Path(path).exists():
+                messagebox.showwarning("Нет файла", "Указанный файл не существует. Выберите файл Excel заново.")
+                return
+            if sys.platform.startswith("win"):
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Ошибка", f"Не удалось открыть файл:\n{exc}")
+
+    def _reload_reference(self) -> None:
+        """Перечитать лист «Справочник» из выбранного файла.
+
+        Нужна, когда пользователь правит справочник (проекты/виды работ) и хочет
+        увидеть изменения без перезапуска приложения.
+        """
+
+        if not self.config_manager.excel_path:
+            messagebox.showwarning("Нет файла", "Сначала выберите Excel файл через меню 'Файл'.")
+            return
+        try:
+            self._load_reference(self.config_manager.excel_path)
+            # Всплывающее сообщение об успешном обновлении
+            messagebox.showinfo("Готово", "Справочник обновлён.")
+            # В строке состояния оставляем текущий файл
+            self._refresh_status()
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Ошибка", f"Не удалось обновить справочник:\n{exc}")
+
+    def _show_excel_requirements(self) -> None:
+        """Показать модальное окно с требованиями к Excel и кнопкой "Создать шаблон".
+
+        Обновлено: добавлен лист "Учет рабочего времени" и его колонки.
+        """
+
+        win = tk.Toplevel(self)
+        win.title("Требования к Excel-файлу")
+        win.transient(self)
+        win.resizable(False, False)
+        win.configure(background="#f5f5f5")
+        win.grab_set()
+
+        body = ttk.Frame(win, padding=16)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        msg = (
+            f"Файл Excel должен содержать лист '{REFERENCE_SHEET}'.\n"
+            "В нём два столбца: Проект и Вид работ.\n\n"
+            f"Также нужен лист '{TIMESHEET_SHEET}', куда добавляются записи:\n"
+            "- Дата\n- Проект\n- Вид работ\n- Длительность (формат Время).\n\n"
+            f"И лист '{WORKDAY_SHEET}' с колонками:\n"
+            "- Дата\n- Время начала\n- Время окончания\n- Длительность (ЧЧ:ММ)."
+        )
+        label = ttk.Label(body, text=msg, justify=tk.LEFT, anchor=tk.W, style="Timesheet.Status.TLabel")
+        try:
+            label.configure(font=font.nametofont("TkMenuFont"))
+        except Exception:
+            pass
+        label.pack(fill=tk.BOTH, expand=True)
+        # Обновляем текст окна на чистый вариант без упоминания форматов
+        new_msg = (
+            f"Файл Excel должен содержать лист '{REFERENCE_SHEET}'.\n"
+            "В нём два столбца: Проект и Вид работ.\n\n"
+            f"Также нужен лист '{TIMESHEET_SHEET}', куда добавляются записи:\n"
+            "- Дата\n- Проект\n- Вид работ\n- Длительность\n\n"
+            f"И лист '{WORKDAY_SHEET}' с колонками:\n"
+            "- Дата\n- Время начала\n- Время окончания\n- Длительность"
+        )
+        try:
+            label.configure(text=new_msg)
+        except Exception:
+            pass
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill=tk.X, pady=(12, 0))
+
+        def on_create_template() -> None:
+            if not messagebox.askokcancel("Создать файл?", "Создать файл?"):
+                return
+            save_path = filedialog.asksaveasfilename(
+                parent=win,
+                title="Сохранить как",
+                defaultextension=".xlsx",
+                filetypes=(("Excel", "*.xlsx"), ("All files", "*.*")),
+                initialfile="timesheet_template.xlsx",
+            )
+            if not save_path:
+                return
+            try:
+                # 1) создаём книгу
+                create_template(save_path)
+                # 2) открываем для заполнения
+                try:
+                    if sys.platform.startswith("win"):
+                        os.startfile(save_path)  # type: ignore[attr-defined]
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", save_path])
+                    else:
+                        subprocess.Popen(["xdg-open", save_path])
+                except Exception:
+                    pass
+                # 3) просим вернуться, когда Excel сохранён и закрыт
+                messagebox.showinfo(
+                    "Продолжите",
+                    "После внесения данных в Excel и сохранения файла,\nзакройте Excel и нажмите OK для выбора файла в приложении.",
+                )
+                # 4) выбираем файл в приложении
+                self.config_manager.excel_path = save_path
+                self.config_manager.save()
+                try:
+                    self._load_reference(save_path)
+                except Exception:
+                    # Если пользователь закрыл шаблон без заполнения справочника —
+                    # очищаем текущие списки и блокируем поля, чтобы не остались
+                    # данные от предыдущего файла.
+                    self.projects = []
+                    self.work_types = []
+                    self.project_field.set_options([])
+                    self.work_field.set_options([])
+                    self._set_inputs_enabled(False)
+                self._refresh_status()
+                messagebox.showinfo("Готово", "Файл выбран в приложении.")
+                win.destroy()
+            except Exception as exc:  # pylint: disable=broad-except
+                messagebox.showerror("Ошибка", f"Не удалось создать файл:\n{exc}")
+
+        create_btn = ttk.Button(buttons, text="Создать шаблон", command=on_create_template)
+        ok_btn = ttk.Button(buttons, text="OK", command=win.destroy)
+        create_btn.pack(side=tk.LEFT)
+        ok_btn.pack(side=tk.RIGHT)
+
+        # Центрируем диалог
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() // 2) - (win.winfo_width() // 2)
+        y = self.winfo_rooty() + (self.winfo_height() // 2) - (win.winfo_height() // 2)
+        win.geometry(f"+{x}+{y}")
+
     def _build_layout(self) -> None:
+        """Построить основную разметку окна (поля, кнопки, статус)."""
+
         padding = {"padx": 16, "pady": 8}
 
         container = ttk.Frame(self, style="TFrame")
         container.pack(fill=tk.BOTH, expand=True, **padding)
 
+        # Верхние кнопки: Начало/Окончание рабочего дня (по центру)
+        top_buttons = ttk.Frame(container, style="TFrame")
+        top_buttons.grid(row=0, column=0, columnspan=2, pady=(0, 8))
+        start_day_btn = ttk.Button(top_buttons, text="Начало работы", command=self._on_start_workday, takefocus=False)
+        end_day_btn = ttk.Button(top_buttons, text="Окончание работы", command=self._on_end_workday, takefocus=False)
+        start_day_btn.grid(row=0, column=0, padx=8)
+        end_day_btn.grid(row=0, column=1, padx=8)
+
+        # Выпадающие списки ниже
         self.project_field = DropdownField(container, "Проект", self.project_var)
-        self.project_field.grid(row=0, column=0, columnspan=2, sticky=(tk.W + tk.E), pady=(0, 12))
+        self.project_field.grid(row=1, column=0, columnspan=2, sticky=(tk.W + tk.E), pady=(0, 12))
 
         self.work_field = DropdownField(container, "Вид работы", self.work_type_var)
-        self.work_field.grid(row=1, column=0, columnspan=2, sticky=(tk.W + tk.E), pady=(0, 16))
+        self.work_field.grid(row=2, column=0, columnspan=2, sticky=(tk.W + tk.E), pady=(0, 16))
 
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
 
         timer_label = ttk.Label(container, textvariable=self.timer_var, style="Timesheet.Timer.TLabel")
-        timer_label.grid(row=2, column=0, columnspan=2, pady=(8, 12))
+        timer_label.grid(row=3, column=0, columnspan=2, pady=(8, 12))
 
         buttons_frame = ttk.Frame(container, style="TFrame")
-        buttons_frame.grid(row=3, column=0, columnspan=2, pady=4)
+        buttons_frame.grid(row=4, column=0, columnspan=2, pady=4)
 
         self._start_button = IconButton(buttons_frame, "play", command=self.start_timer)
         self._start_button.grid(row=0, column=0, padx=6)
@@ -285,7 +538,8 @@ class TimeTrackerApp(tk.Tk):
         self._stop_button = IconButton(buttons_frame, "stop", command=self.stop_timer)
         self._stop_button.grid(row=0, column=2, padx=6)
 
-        container.rowconfigure(4, weight=1)
+        container.rowconfigure(5, weight=1)
+        container.rowconfigure(6, minsize=24)  # строка состояния всегда видима
 
         status_label = ttk.Label(
             container,
@@ -294,13 +548,41 @@ class TimeTrackerApp(tk.Tk):
             wraplength=600,
             style="Timesheet.Status.TLabel",
         )
-        status_label.grid(row=5, column=0, columnspan=2, sticky=(tk.W + tk.E + tk.S), pady=(12, 0))
+        status_label.grid(row=6, column=0, columnspan=2, sticky=(tk.W + tk.E + tk.S), pady=(12, 0))
         self._status_label = status_label
 
-    # ------------------------------------------------------------------
-    # Excel helpers
-    # ------------------------------------------------------------------
+    def _on_start_workday(self) -> None:
+        """Записать в книгу текущую дату и время начала работы."""
+
+        if not self.config_manager.excel_path:
+            messagebox.showwarning("Нет файла", "Сначала выберите Excel файл через меню 'Файл'.")
+            return
+        try:
+            date_str, time_str = workday_start(self.config_manager.excel_path)
+            messagebox.showinfo("Начало работы", f"Сегодня {date_str} работа началась в {time_str}.")
+            # Снимаем фокус с кнопки, чтобы убрать пунктирную рамку
+            self.focus_set()
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Ошибка", f"Не удалось отметить начало рабочего дня:\n{exc}")
+
+    def _on_end_workday(self) -> None:
+        """Записать время окончания и длительность рабочего дня."""
+
+        if not self.config_manager.excel_path:
+            messagebox.showwarning("Нет файла", "Сначала выберите Excel файл через меню 'Файл'.")
+            return
+        try:
+            duration_str = workday_end(self.config_manager.excel_path)
+            messagebox.showinfo("Рабочий день окончен", f"Рабочий день окончен! Он продлился: {duration_str}")
+            # Снимаем фокус с кнопки, чтобы убрать пунктирную рамку
+            self.focus_set()
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Ошибка", f"Не удалось отметить окончание рабочего дня:\n{exc}")
+
+    # ------------------------- Работа с Excel -------------------------
     def _prompt_for_excel(self) -> None:
+        """Показать диалог выбора Excel-файла и загрузить справочники."""
+
         filename = filedialog.askopenfilename(
             title="Выберите Excel файл",
             filetypes=(("Excel файлы", "*.xlsx"), ("Все файлы", "*.*")),
@@ -313,13 +595,24 @@ class TimeTrackerApp(tk.Tk):
             self._load_reference(filename)
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Ошибка", f"Не удалось загрузить Excel файл:\n{exc}")
+            # Очищаем текущие списки и блокируем выбор, чтобы не остались старые данные
+            self.projects = []
+            self.work_types = []
+            self.project_field.set_options([])
+            self.work_field.set_options([])
+            self._set_inputs_enabled(False)
             return
 
         self.config_manager.excel_path = filename
         self.config_manager.save()
         self._refresh_status()
+        self.status_var.set(f"Файл: {self.config_manager.excel_path}")
+        # После удачной загрузки разрешим выбор значений
+        self._set_inputs_enabled(True)
 
     def _load_reference(self, path: str) -> None:
+        """Загрузить данные листа 'Справочник' и обновить выпадающие списки."""
+
         projects, work_types = load_reference_data(path)
         if not projects or not work_types:
             raise ExcelStructureError(
@@ -342,49 +635,55 @@ class TimeTrackerApp(tk.Tk):
             self.work_type_var.set(current_work_type)
         elif self.work_types:
             self.work_type_var.set(self.work_types[0])
+
         self._refresh_status()
         self._adjust_layout_for_content()
+        # Списки подгружены — поля доступны
+        self._set_inputs_enabled(True)
+
+    def _set_inputs_enabled(self, enabled: bool) -> None:
+        """Включить/выключить поля выбора проекта и вида работ."""
+
+        state = "readonly" if enabled else "disabled"
+        try:
+            self.project_field.combobox.configure(state=state)
+            self.work_field.combobox.configure(state=state)
+        except Exception:
+            pass
 
     def _refresh_status(self) -> None:
+        """Обновить строку состояния: показываем путь к файлу (или отсутствие)."""
+
         if self.config_manager.excel_path:
-            self.status_var.set("Файл Excel готов к использованию")
+            self.status_var.set(f"Файл: {self.config_manager.excel_path}")
         else:
             self.status_var.set("Файл Excel не выбран")
 
-    def _show_current_file(self) -> None:
-        if self.config_manager.excel_path:
-            messagebox.showinfo("Текущий файл", self.config_manager.excel_path)
-        else:
-            messagebox.showinfo("Текущий файл", "Файл Excel не выбран")
-
     def _adjust_layout_for_content(self) -> None:
-        longest_width = max(
-            self.project_field.measure_longest_option(),
-            self.work_field.measure_longest_option(),
-        )
+        """Подогнать ширину окна под самые длинные пункты выпадающих списков."""
+
+        longest_width = max(self.project_field.measure_longest_option(), self.work_field.measure_longest_option())
         if longest_width <= 0:
             return
         desired_width = max(440, min(int(longest_width + 260), 1000))
         self.update_idletasks()
-        current_height = max(self.winfo_height(), 300)
+        current_height = max(self.winfo_height(), 340)
         self.geometry(f"{desired_width}x{current_height}")
-        self.minsize(desired_width, 280)
+        self.minsize(desired_width, 320)
         self.project_field.refresh_width()
         self.work_field.refresh_width()
         self._status_label.configure(wraplength=max(desired_width - 40, 200))
 
-    # ------------------------------------------------------------------
-    # Timer logic
-    # ------------------------------------------------------------------
+    # --------------------------- Логика таймера ---------------------------
     def start_timer(self) -> None:
+        """Запустить таймер и начать считать время работы."""
+
         if not self.config_manager.excel_path:
             messagebox.showwarning("Нет файла", "Сначала выберите Excel файл через меню 'Файл'.")
             return
-
         if not self.project_var.get() or not self.work_type_var.get():
             messagebox.showwarning("Нет данных", "Выберите проект и вид работы.")
             return
-
         if not self.projects or not self.work_types:
             messagebox.showwarning("Нет данных", "Не удалось загрузить данные из Excel файла.")
             return
@@ -393,8 +692,12 @@ class TimeTrackerApp(tk.Tk):
             self._start_reference = time.perf_counter() - self._elapsed_seconds
             self._timer_running = True
             self._schedule_timer_update()
+            # На время отсчёта блокируем изменение полей
+            self._set_inputs_enabled(False)
 
     def pause_timer(self) -> None:
+        """Поставить таймер на паузу (не записывает в Excel)."""
+
         if not self._timer_running:
             return
         self._elapsed_seconds = time.perf_counter() - self._start_reference
@@ -404,6 +707,8 @@ class TimeTrackerApp(tk.Tk):
             self._timer_job = None
 
     def stop_timer(self) -> None:
+        """Остановить таймер и записать результат в Excel."""
+
         if self._timer_running:
             self._elapsed_seconds = time.perf_counter() - self._start_reference
             self._timer_running = False
@@ -428,24 +733,31 @@ class TimeTrackerApp(tk.Tk):
             )
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Ошибка", f"Не удалось записать данные в Excel:\n{exc}")
+            # Разблокируем поля, чтобы пользователь мог скорректировать выбор
+            self._set_inputs_enabled(True)
             return
 
-        messagebox.showinfo(
-            "Время сохранено",
-            "Запись успешно добавлена в лист 'Учет времени'.",
-        )
+        messagebox.showinfo("Запись добавлена", "Строка успешно записана на лист 'Учет времени'.")
+        # После успешной записи — снова разрешаем менять значения
+        self._set_inputs_enabled(True)
 
     def _schedule_timer_update(self) -> None:
+        """Планировать регулярное обновление отображения счётчика."""
+
         self._update_timer_display()
         self._timer_job = self.after(200, self._schedule_timer_update)
 
     def _update_timer_display(self) -> None:
+        """Обновить текст таймера на экране."""
+
         if self._timer_running:
             self._elapsed_seconds = time.perf_counter() - self._start_reference
         self.timer_var.set(self._format_time(self._elapsed_seconds))
 
     @staticmethod
     def _format_time(seconds: float) -> str:
+        """Форматировать секунды в строку HH:MM:SS."""
+
         total_seconds = int(seconds)
         hours, remainder = divmod(total_seconds, 3600)
         minutes, secs = divmod(remainder, 60)
@@ -453,6 +765,8 @@ class TimeTrackerApp(tk.Tk):
 
 
 def main() -> None:
+    """Точка входа: создать и запустить приложение."""
+
     app = TimeTrackerApp()
     app.mainloop()
 
