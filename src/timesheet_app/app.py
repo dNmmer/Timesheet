@@ -48,7 +48,7 @@ if __package__ in {None, ""}:  # pragma: no cover - запуск как скри
         from version import VERSION  # type: ignore
 else:  # стандартный путь импорта пакета
     from .config import AppConfig
-from .excel_manager import (
+    from .excel_manager import (
         ExcelStructureError,
         REFERENCE_SHEET,
         TIMESHEET_SHEET,
