@@ -421,6 +421,19 @@ class TimeTrackerApp(tk.Tk):
         except Exception:
             pass
         label.pack(fill=tk.BOTH, expand=True)
+        # Обновляем текст окна на чистый вариант без упоминания форматов
+        new_msg = (
+            f"Файл Excel должен содержать лист '{REFERENCE_SHEET}'.\n"
+            "В нём два столбца: Проект и Вид работ.\n\n"
+            f"Также нужен лист '{TIMESHEET_SHEET}', куда добавляются записи:\n"
+            "- Дата\n- Проект\n- Вид работ\n- Длительность\n\n"
+            f"И лист '{WORKDAY_SHEET}' с колонками:\n"
+            "- Дата\n- Время начала\n- Время окончания\n- Длительность"
+        )
+        try:
+            label.configure(text=new_msg)
+        except Exception:
+            pass
 
         buttons = ttk.Frame(body)
         buttons.pack(fill=tk.X, pady=(12, 0))
