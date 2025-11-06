@@ -1,5 +1,5 @@
-#define MyAppName "Timesheet Timer"
-#define MyAppVersion "1.0.0"
+﻿#define MyAppName "Timesheet Timer"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Timesheet"
 #define MyAppExeName "TimesheetTimer.exe"
 #define MyDefaultDirName "C:\\Program Files\\TimeSheet"
