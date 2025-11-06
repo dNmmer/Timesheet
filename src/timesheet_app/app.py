@@ -392,7 +392,10 @@ class TimeTrackerApp(tk.Tk):
             messagebox.showerror("Ошибка", f"Не удалось обновить справочник:\n{exc}")
 
     def _show_excel_requirements(self) -> None:
-        """Показать модальное окно с требованиями к Excel и кнопкой "Создать шаблон"."""
+        """Показать модальное окно с требованиями к Excel и кнопкой "Создать шаблон".
+
+        Обновлено: добавлен лист "Учет рабочего времени" и его колонки.
+        """
 
         win = tk.Toplevel(self)
         win.title("Требования к Excel-файлу")
@@ -408,7 +411,9 @@ class TimeTrackerApp(tk.Tk):
             f"Файл Excel должен содержать лист '{REFERENCE_SHEET}'.\n"
             "В нём два столбца: Проект и Вид работ.\n\n"
             f"Также нужен лист '{TIMESHEET_SHEET}', куда добавляются записи:\n"
-            "- Дата\n- Проект\n- Вид работ\n- Длительность (формат Время)."
+            "- Дата\n- Проект\n- Вид работ\n- Длительность (формат Время).\n\n"
+            f"И лист '{WORKDAY_SHEET}' с колонками:\n"
+            "- Дата\n- Время начала\n- Время окончания\n- Длительность (ЧЧ:ММ)."
         )
         label = ttk.Label(body, text=msg, justify=tk.LEFT, anchor=tk.W, style="Timesheet.Status.TLabel")
         try:
@@ -492,8 +497,8 @@ class TimeTrackerApp(tk.Tk):
         # Верхние кнопки: Начало/Окончание рабочего дня (по центру)
         top_buttons = ttk.Frame(container, style="TFrame")
         top_buttons.grid(row=0, column=0, columnspan=2, pady=(0, 8))
-        start_day_btn = ttk.Button(top_buttons, text="Начало работы", command=self._on_start_workday)
-        end_day_btn = ttk.Button(top_buttons, text="Окончание работы", command=self._on_end_workday)
+        start_day_btn = ttk.Button(top_buttons, text="Начало работы", command=self._on_start_workday, takefocus=False)
+        end_day_btn = ttk.Button(top_buttons, text="Окончание работы", command=self._on_end_workday, takefocus=False)
         start_day_btn.grid(row=0, column=0, padx=8)
         end_day_btn.grid(row=0, column=1, padx=8)
 
@@ -542,6 +547,8 @@ class TimeTrackerApp(tk.Tk):
         try:
             date_str, time_str = workday_start(self.config_manager.excel_path)
             messagebox.showinfo("Начало работы", f"Сегодня {date_str} работа началась в {time_str}.")
+            # Снимаем фокус с кнопки, чтобы убрать пунктирную рамку
+            self.focus_set()
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Ошибка", f"Не удалось отметить начало рабочего дня:\n{exc}")
 
@@ -554,6 +561,8 @@ class TimeTrackerApp(tk.Tk):
         try:
             duration_str = workday_end(self.config_manager.excel_path)
             messagebox.showinfo("Рабочий день окончен", f"Рабочий день окончен! Он продлился: {duration_str}")
+            # Снимаем фокус с кнопки, чтобы убрать пунктирную рамку
+            self.focus_set()
         except Exception as exc:  # pylint: disable=broad-except
             messagebox.showerror("Ошибка", f"Не удалось отметить окончание рабочего дня:\n{exc}")
 
